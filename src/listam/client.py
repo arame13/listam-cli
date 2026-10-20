@@ -14,6 +14,8 @@ from .http import Http, ListamError, NotFound
 
 PARTS_CATEGORY = 22  # "Parts and Accessories" - where car-compatibility filters live
 CACHE_TTL = 3 * 24 * 3600
+# Bump when parser output changes so stale cached filter lists are not reused.
+CACHE_VERSION = 3
 
 
 def cache_dir() -> Path:
@@ -77,7 +79,7 @@ class Listam:
     # ------------------------------------------------------------------ cache
 
     def _cached(self, key: str, fetch) -> Any:
-        path = cache_dir() / f"{key}.json"
+        path = cache_dir() / f"v{CACHE_VERSION}-{key}.json"
         if self.use_cache and path.exists() and time.time() - path.stat().st_mtime < CACHE_TTL:
             try:
                 return json.loads(path.read_text())
@@ -93,12 +95,20 @@ class Listam:
 
     # ------------------------------------------------------------------ lookups
 
+    @staticmethod
+    def _category_page(http: Http, category: int | None, path: str, params: dict[str, Any] | None = None):
+        """GET a category page; list.am redirects unknown categories to the home page."""
+        resp = http.get(http.page_url(path), params=params)
+        if category and "/category" not in str(resp.url):
+            raise NotFound(f"category {category} does not exist (see `listam categories`)")
+        return resp
+
     def filters(self, category: int, lang: str | None = None) -> dict[str, Any]:
         lang = lang or self.lang
         http = self._en if lang == "en" else self.http
 
         def fetch():
-            return parsers.parse_filters(http.get_html(http.page_url(f"/category/{category}")))
+            return parsers.parse_filters(self._category_page(http, category, f"/category/{category}").text)
 
         return self._cached(f"filters-{lang}-{category}", fetch)
 
@@ -106,18 +116,33 @@ class Listam:
         if parent is None:
             html = self.http.get_html(self.http.page_url("/"))
             return parsers.parse_top_categories(html)
-        nodes = parsers.parse_categories(self.http.get_html(self.http.page_url(f"/category/{parent}")))
+        nodes = parsers.parse_categories(self._category_page(self.http, parent, f"/category/{parent}").text)
         # The sidebar shows ancestors, the selected node, then its children.
         idx = next((i for i, n in enumerate(nodes) if n["selected"]), None)
-        if idx is None:
-            return [n for n in nodes if n["id"] != parent]
-        return [{"id": n["id"], "name": n["name"]} for n in nodes[idx + 1 :]]
+        children = [n for n in nodes if n["id"] != parent] if idx is None else nodes[idx + 1 :]
+        return [{"id": n["id"], "name": n["name"]} for n in children]
+
+    def is_vehicle_category(self, category: int | None) -> bool:
+        """Vehicle listings (cars, trucks…) filter on bid/mid; parts filter on cc_bid/cc_mid."""
+        if not category or category == PARTS_CATEGORY:
+            return False
+        f = self.filters(category, lang="en")
+        return "mid" in f and "cc_bid" not in f
+
+    def _make_param(self, category: int) -> str:
+        return "bid" if self.is_vehicle_category(category) else "cc_bid"
 
     def makes(self, category: int = PARTS_CATEGORY) -> list[dict[str, Any]]:
-        opts = self.filters(category).get("cc_bid", {}).get("options", [])
+        opts = self.filters(category).get(self._make_param(category), {}).get("options", [])
         return [{"id": int(o["value"]), "name": o["name"]} for o in opts]
 
     def _chain(self, kind: str, category: int, make_id: str, model_id: str | None = None) -> dict[str, Any]:
+        if kind == "m" and self.is_vehicle_category(category):
+            params = dict(cname="make", makes=make_id, c=category, existingOnly=1)
+            data = self._cached(f"chain-vm-{category}-{make_id}", lambda: self._en.get_json("/lsw-chain", params=params))
+            return parsers.parse_chain(data, "_idmodel")
+        if kind == "g" and self.is_vehicle_category(category):
+            raise ListamError("generations are only available for car parts (vehicle listings filter by year instead, e.g. -f _a2_1=2018)")
         if kind == "m":
             params = dict(fecarpartscompat=1, type="m", nextid="cc_mid", cid="cc_bid", cc_bid=make_id, c=category, flat=0, keep_ids="")
             key = "cc_mid"
@@ -129,7 +154,7 @@ class Listam:
         return parsers.parse_chain(data, key)
 
     def resolve_make(self, make: str, category: int = PARTS_CATEGORY) -> str:
-        opts = self.filters(category, lang="en").get("cc_bid", {}).get("options", [])
+        opts = self.filters(category, lang="en").get(self._make_param(category), {}).get("options", [])
         return resolve_option(opts, make, "make")
 
     def models(self, make: str, category: int = PARTS_CATEGORY) -> dict[str, Any]:
@@ -184,15 +209,19 @@ class Listam:
             category = category or PARTS_CATEGORY
             if not make:
                 raise ListamError("--model/--generation require --make")
-            make_id = self.resolve_make(make, PARTS_CATEGORY)
-            params["cc_bid"] = make_id
-            if model:
-                model_id = self.resolve_model(make_id, model)
-                params["cc_mid"] = model_id
-                if generation:
-                    params["cc_gid"] = self.resolve_generation(make_id, model_id, generation)
-            elif generation:
+            if generation and not model:
                 raise ListamError("--generation requires --model")
+            # Vehicle categories filter on the car itself (bid/mid); elsewhere --make
+            # means "part fits this vehicle" and uses the parts compatibility filters.
+            vehicle = self.is_vehicle_category(category)
+            fcat = category if vehicle else PARTS_CATEGORY
+            make_id = self.resolve_make(make, fcat)
+            params["bid" if vehicle else "cc_bid"] = make_id
+            if model:
+                model_id = self.resolve_model(make_id, model, fcat)
+                params["mid" if vehicle else "cc_mid"] = model_id
+                if generation:
+                    params["cc_gid"] = self.resolve_generation(make_id, model_id, generation, fcat)
         filter_cat = category
         if brand:
             params["bid"] = self.resolve_filter(filter_cat or PARTS_CATEGORY, "bid", brand)
@@ -230,8 +259,7 @@ class Listam:
             else:
                 path = "/category"
                 pp = dict(params, **({"pg": p} if p > 1 else {}))
-            url = self.http.page_url(path)
-            resp = self.http.get(url, params=pp)
+            resp = self._category_page(self.http, category, path, pp)
             urls.append(str(resp.url))
             parsed = parsers.parse_search(resp.text)
             if total is None:
@@ -259,8 +287,15 @@ class Listam:
     def item(self, item: str | int) -> dict[str, Any]:
         iid = item_id_from(item)
         html = self.http.get_html(self.http.page_url(f"/item/{iid}"))
+        known: set[str] = set()
+        cat = parsers.item_category_id(html)
+        if cat:
+            try:  # filter labels tell attribute names from values; best effort
+                known = {v["label"] for v in self.filters(cat).values() if v.get("label")}
+            except ListamError:
+                pass
         try:
-            return parsers.parse_item(html, iid)
+            return parsers.parse_item(html, iid, known_labels=known)
         except ValueError as e:
             raise NotFound(f"item {iid}: {e}") from None
 

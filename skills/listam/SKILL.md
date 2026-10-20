@@ -98,6 +98,16 @@ Text search matches titles literally, so if English returns little, retry with l
 
 Discover others with `listam categories` (top level) and `listam categories <id>` (children).
 
+## Buying a car
+
+In vehicle categories (`23` Passenger Cars, `25` Trucks, …) `--make/--model` filter the vehicle itself.
+Year, mileage, engine etc. are range filters named `_aN_1` (from) / `_aN_2` (to); see `listam filters 23`.
+```bash
+listam search -c 23 --make toyota --model camry -f "_a2_1=2018" --location yerevan --currency usd --price-max 25000 --format text
+```
+`listam item` returns specs in `attributes` (e.g. "Cleared Customs", "Current Condition", "Mileage") and
+equipment in `features` (e.g. "Heated seats").
+
 ## Other categories
 
 The CLI works for any list.am category. Category-specific filters (RAM, processor, rooms…) are named `_aNN`;
@@ -108,6 +118,8 @@ listam filters 116 --name _a138                        # processor options
 listam search -c 116 --brand apple -f "_a138=Apple M5 Pro" --condition used --sections regular --format text
 listam search -c 62 -f cmtype=owner --location arabkir --currency usd --price-max 120000 --format text
 ```
+Results from a multi-category search carry `category_path` (e.g. "Furniture › Sofas"). Job cards put the employer
+in `subtitle` and schedule/experience in `labels`; service and job cards usually have no price.
 `--condition` resolves against the category's own options (e.g. new/used/faulty for laptops, finished/unfinished
 for real estate). `--brand` uses the category's Make/Manufacturer list.
 Sellers don't always fill in structured fields, so also run a text search (e.g. `"macbook pro m5"`) and merge.

@@ -44,6 +44,16 @@ $ listam search --make vaz --model "2121 niva" --location gyumri --sections regu
 21532552 | regular | 35,000 ֏ | VAZ (Lada) 2121 Niva ռազդատկա | Suitable For VAZ (Lada) 2121 Niva | Gyumri | 1 photos
 ```
 
+Used Toyota Camrys from 2018 or newer in Yerevan under $25,000 (category 23 is Passenger Cars, `_a2_1` is "Year from").
+
+```console
+$ listam search -c 23 --make toyota --model camry -f "_a2_1=2018" --location yerevan --currency usd --price-max 25000 --sections regular --limit 3 --format text
+# total exact matches: 528  results on page(s): 3  next_page: 2  url: https://www.list.am/en/category/23?bid=76&mid=1560&n=1&crc=1&price2=25000&_a2_1=2018
+995182429 | regular | $ 24,500 | 2020 Toyota Camry, 2.5L, gas | 2020 y., 105,000 km, Gasoline, RU Luxe Safety | Arabkir | 7 photos
+23701294 | regular | $ 19,800 | 2021 Toyota Camry, 2.5L | 2021 y., 63,000 km, Gasoline, US SE | Malatia-Sebastia | 13 photos
+21170877 | regular | $ 16,800 | 2018 Toyota Camry, 2.5L | 2018 y., 145,000 km, Gasoline | Kentron | 16 photos
+```
+
 Apartments in Kentron under $150,000, sold by owners rather than agencies.
 
 ```console
@@ -77,7 +87,7 @@ to save every photo. `listam phone ID` returns just the contacts.
 
 | Command | Purpose |
 |---|---|
-| `search [QUERY]` | Search listings. Filters: `-c` category, `--make/--model/--generation`, `--brand`, `--condition`, `--location`, `--price-min/--price-max`, `--currency`, `-f KEY=VALUE` |
+| `search [QUERY]` | Search listings. Filters: `-c` category, `--make/--model` (cars, or the car a part fits), `--generation` (parts), `--brand`, `--condition`, `--location`, `--price-min/--price-max`, `--currency`, `-f KEY=VALUE` |
 | `item ID` | Full details; `--phone` adds contacts, `--download DIR` saves all photos |
 | `phone ID` | Phone numbers (local and `+374…`), Viber, WhatsApp |
 | `images ID` | Download all photos |

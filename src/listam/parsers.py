@@ -98,21 +98,36 @@ def _card(a: LexborNode, section: str) -> dict[str, Any] | None:
         return None
     item_id = m.group(1)
 
-    title = _text(a.css_first(".pt")) or _text(a.css_first("div.l:not(.category-data-list-card__metadata)"))
-    subtitle = None
+    title = (
+        _text(a.css_first(".pt"))
+        or _text(a.css_first("div.l:not(.category-data-list-card__metadata)"))
+        or _text(a.css_first(".jo62__title"))  # job ads
+    )
+    subtitle = _text(a.css_first(".jo62__subtitle"))  # employer, for job ads
     for at in a.css(".at"):
         if "category-data-list-card__location" not in (at.attributes.get("class") or ""):
             subtitle = _text(at)
             break
-    location = _text(a.css_first(".category-data-list-card__metadata")) or _text(
+    # Several elements share the __metadata class (attributes, category path,
+    # district); the district is the `.l` one in the where/when row.
+    location = _text(a.css_first(".category-data-list-card__where-when .l")) or _text(
         a.css_first(".category-data-list-card__location")
     )
+    category_path = _text(a.css_first(".c.category-data-list-card__metadata"))
     date = _text(a.css_first(".category-data-list-card__date"))
     price = parse_price(_text(a.css_first(".category-data-list-card__amount")))
+    pills = [t for t in (_text(p) for p in a.css(".jo62__pill-text")) if t]
+    meta = _text(a.css_first(".jo62__meta"))  # "Kentron · Today"
+    if meta:
+        location, _, when = meta.partition(" · ")
+        date = date or when or None
+    if price is None:
+        salary = next((t for t in pills if any(sym in t for sym in CURRENCY_SYMBOLS)), None)
+        price = parse_price(salary)
 
     photo_ids = [p for p in (a.attributes.get("data-tslider") or "").split(",") if p.strip()]
     np_attr = a.attributes.get("data-tslider-np") or ""
-    labels = [t for t in (_text(s) for s in a.css(".po82 span, .clabel")) if t]
+    labels = [t for t in (_text(s) for s in a.css(".po82 span, .clabel")) if t] + pills
 
     img = a.css_first("img")
     return {
@@ -124,6 +139,7 @@ def _card(a: LexborNode, section: str) -> dict[str, Any] | None:
         "price": price,
         "location": location,
         "date": date,
+        "category_path": category_path,  # set on cross-category results, e.g. "Furniture › Sofas"
         "photo_count": int(np_attr) if np_attr.isdigit() else len(photo_ids),
         # Cards preview at most ~6 photos; `listam item` returns the full gallery.
         "images": [image_url(p) for p in photo_ids],
@@ -181,9 +197,42 @@ def parse_search(html: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------- item page
 
 
-def parse_item(html: str, item_id: str) -> dict[str, Any]:
+# Values that only ever appear as the value half of an attribute tile.
+_GENERIC_VALUES = {"yes", "no", "available", "not available", "by agreement", "new", "used", "installed", "not installed"}
+
+
+def _norm_label(s: str) -> str:
+    """'Mileage (km) from' -> 'mileage'; used to compare tile text with filter labels."""
+    s = re.sub(r"\s*\(.*?\)", "", s).strip().lower()
+    return re.sub(r"\s+(from|to)$", "", s)
+
+
+def _orient_tile(first: str, second: str, known_labels: set[str]) -> tuple[str, str]:
+    """Return (key, value) for a two-line attribute tile.
+
+    Tiles render either value-first ('16 GB' / 'Memory (RAM)') or label-first
+    ('Cleared Customs' / 'Yes') with identical markup, so decide by content:
+    whichever line is a known attribute label for the category is the key.
+    """
+    if _norm_label(second) in known_labels:
+        return second, first
+    if _norm_label(first) in known_labels or second.lower() in _GENERIC_VALUES:
+        return first, second
+    return second, first  # value-first is the common layout
+
+
+def item_category_id(html: str) -> int | None:
+    m = re.search(r"recview\(\d+,\s*(\d+)\)", html)
+    return int(m.group(1)) if m else None
+
+
+def parse_item(html: str, item_id: str, known_labels: set[str] | None = None) -> dict[str, Any]:
+    """Parse an item page. `known_labels` (normalized filter labels of the item's
+    category) lets attribute tiles be oriented correctly; see _orient_tile."""
+    known_labels = {_norm_label(x) for x in (known_labels or ())}
     tree = LexborHTMLParser(html)
-    title = _text(tree.css_first('h1[itemprop="name"]'))
+    # Job ads mark the title as itemprop="title" (schema.org JobPosting).
+    title = _text(tree.css_first('h1[itemprop="name"]')) or _text(tree.css_first('h1[itemprop="title"]'))
     if title is None:
         raise ValueError("not an item page (listing removed or expired?)")
 
@@ -208,16 +257,16 @@ def parse_item(html: str, item_id: str) -> dict[str, Any]:
         k, v = _text(c.css_first(".t")), _text(c.css_first(".i"))
         if k and v:
             attributes[k] = v
-    # Electronics-style attribute tiles: <p class="attr-value">16 GB</p><p>Memory (RAM)</p>
+    # Icon tiles (electronics, cars, real estate). One-line tiles are features
+    # such as "Heated seats" or "Concierge".
+    features: list[str] = []
     for tile in tree.css(".at3"):
-        ps = [_text(p) for p in tile.css(".attr-info-wraper p")]
-        if len(ps) < 2 or not ps[0] or not ps[1]:
-            continue
-        value, key = ps[0], ps[1]
-        icon = tile.css_first(".attr-icon")
-        if icon is not None and "general-condition" in (icon.attributes.get("style") or ""):
-            key, value = value, key  # the condition tile is rendered label-first
-        attributes.setdefault(key, value)
+        ps = [t for t in (_text(p) for p in tile.css(".attr-info-wraper p")) if t]
+        if len(ps) == 1:
+            features.append(ps[0])
+        elif len(ps) >= 2:
+            key, value = _orient_tile(ps[0], ps[1], known_labels)
+            attributes.setdefault(key, value)
 
     compatibility = []
     for node in tree.css(".compat .cnode, .compat .cleaf"):
@@ -247,7 +296,7 @@ def parse_item(html: str, item_id: str) -> dict[str, Any]:
         href = a.attributes.get("href") if a else None
         cm = re.search(r"/category/(\d+)", href or "")
         breadcrumbs.append({"name": name, "category_id": int(cm.group(1)) if cm else None})
-    cat = re.search(r"recview\(\d+,\s*(\d+)\)", html)
+    cat_id = item_category_id(html)
 
     footer = tree.css_first(".footer")
     posted = tree.css_first('[itemprop="datePosted"]')
@@ -286,9 +335,10 @@ def parse_item(html: str, item_id: str) -> dict[str, Any]:
         "title": title,
         "price": price,
         "location": _text(loc),
-        "category_id": int(cat.group(1)) if cat else None,
+        "category_id": cat_id,
         "breadcrumbs": breadcrumbs,
         "attributes": attributes,
+        "features": features,
         "compatibility": compatibility,
         "description": _multiline_text(desc_node),
         "description_translation": translated_from,  # e.g. "Translated from Armenian"; use --lang hy for the original
@@ -344,12 +394,18 @@ def parse_categories(html: str) -> list[dict[str, Any]]:
     tree = LexborHTMLParser(html)
     form = tree.css_first('form[name="f"]')
     if form is None:
-        # Landing pages (e.g. Real Estate) have no sidebar; children are shortcut links.
-        return [
-            {"id": int(a.attributes["data-category-id"]), "name": _text(a), "selected": False}
-            for a in tree.css("a.reh-shortcut[data-category-id]")
-            if (a.attributes.get("data-category-id") or "").isdigit() and _text(a)
-        ]
+        # Landing pages (Real Estate, Vehicles, Jobs) have no sidebar; children are
+        # tile/shortcut links whose class differs per page (reh-shortcut, vl-tile, jl-tile).
+        tiles, seen = [], set()
+        for a in tree.css('a[href*="/category/"]'):
+            if not re.search(r"(^|[\s-])(tile|shortcut)", a.attributes.get("class") or ""):
+                continue
+            m = re.search(r"/category/(\d+)$", a.attributes.get("href") or "")
+            name = a.attributes.get("aria-label") or _text(a)
+            if m and name and m.group(1) not in seen:
+                seen.add(m.group(1))
+                tiles.append({"id": int(m.group(1)), "name": name, "selected": False})
+        return tiles
     out = []
     for node in form.css("[data-category-id]"):
         cid = node.attributes.get("data-category-id")
@@ -416,6 +472,8 @@ def parse_filters(html: str) -> dict[str, dict[str, Any]]:
             if "filter-section" in (section.attributes.get("class") or "").split():
                 break
             section = section.parent
+        if label and re.search(r"_[12]$", name) and name.startswith("_a"):  # range pair, e.g. _a2_1/_a2_2 = year from/to
+            label = f"{label} {'from' if name.endswith('_1') else 'to'}"
         if name == "crc":
             label = "Price currency"
         if name in ("price1", "price2"):

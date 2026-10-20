@@ -141,3 +141,64 @@ def test_landing_page_categories_from_shortcuts():
     cats = parsers.parse_categories(read("category_54_landing.html"))
     assert {"id": 62, "name": "For sale", "selected": False} in cats
     assert len(cats) == 5
+
+
+@pytest.mark.parametrize(
+    "fixture, expected",
+    [("category_16_landing.html", {"id": 23, "name": "Passenger Cars"}), ("category_29_landing.html", {"id": 1454, "name": "Technology and IT"})],
+)
+def test_landing_page_categories_from_tiles(fixture, expected):
+    cats = parsers.parse_categories(read(fixture))
+    assert dict(expected, selected=False) in cats
+    assert len({c["id"] for c in cats}) == len(cats)
+
+
+CAR_LABELS = {"Body Type", "Cleared Customs", "Current Condition", "Drive Type", "Engine Type", "Exchange possible",
+              "Gas Equipment", "Make", "Model", "Steering Wheel", "Sunroof", "Transmission", "Year from", "Mileage (km) from"}
+
+
+def test_item_tiles_oriented_by_known_labels():
+    d = parsers.parse_item(read("item_car.html"), "995182429", known_labels=CAR_LABELS)
+    a = d["attributes"]
+    # value-first tiles
+    assert a["Make"] == "Toyota" and a["Year"] == "2020" and a["Mileage"] == "105,000 km"
+    assert a["Current Condition"] == "Not damaged" and a["Sunroof"] == "No Sunroof"
+    # label-first tiles (same markup)
+    assert a["Cleared Customs"] == "Yes" and a["Exchange possible"] == "No"
+    assert "Heated seats" in d["features"]
+    assert d["seller"]["name"] == "Example Seller"
+
+
+@pytest.mark.parametrize(
+    "first, second, key",
+    [("16 GB", "Memory (RAM)", "Memory (RAM)"), ("Condition", "Used", "Condition"),
+     ("Wheelchair accessible", "No", "Wheelchair accessible"), ("Luxe Safety", "Trim", "Trim")],
+)
+def test_orient_tile(first, second, key):
+    assert parsers._orient_tile(first, second, {"condition", "memory"})[0] == key
+
+
+def test_search_job_cards():
+    data = parsers.parse_search(read("search_jobs.html"))
+    job = data["results"][0]
+    assert job["title"] and job["subtitle"]  # position and employer
+    assert job["location"] and job["date"]
+    assert job["labels"]  # schedule / experience pills
+
+
+def test_card_with_several_metadata_rows_picks_district():
+    html = (
+        '<div id="contentr"><div class="hdr regular-posts">Regular Ads</div>'
+        '<a data-tslider="100993164" data-tslider-np="1" href="/en/item/21487715" data-testid="favorite-ad-card-21487715">'
+        '<div class="pt">Corner sofa</div><div class="category-data-list-card__meta">'
+        '<div class="at category-data-list-card__metadata">Textile · Gray</div>'
+        '<div class="c category-data-list-card__metadata">Furniture › Sofas and Armchairs › Sofas</div></div>'
+        '<span class="category-data-list-card__amount">205,000<span class="category-data-list-card__currency">֏</span></span>'
+        '<div class="category-data-list-card__where-when"><div class="l category-data-list-card__metadata">Kanaker-Zeytun</div></div>'
+        "</a></div>"
+    )
+    card = parsers.parse_search(html)["results"][0]
+    assert card["location"] == "Kanaker-Zeytun"
+    assert card["subtitle"] == "Textile · Gray"
+    assert card["category_path"] == "Furniture › Sofas and Armchairs › Sofas"
+    assert card["price"]["amount"] == 205000

@@ -20,6 +20,7 @@ examples:
   listam phone https://www.list.am/en/item/22973564
   listam images 22973564 --dir ./photos
   listam categories 530          # sub-categories of Car Parts
+  listam search -c 23 --make toyota --model camry -f "_a2_1=2018" --currency usd --price-max 25000
   listam models toyota            # model ids for --model
   listam filters 62 --name n      # every filter (query param) of a category
 
@@ -56,6 +57,8 @@ def _item_text(d: dict) -> str:
     out = [f"{d['title']}", f"id {d['id']}  {_fmt_price(d['price'])}  {d.get('location') or ''}", d["url"]]
     for k, v in d["attributes"].items():
         out.append(f"{k}: {v}")
+    if d.get("features"):
+        out.append(f"Features: {', '.join(d['features'])}")
     for c in d["compatibility"]:
         out.append(f"Fits: {c['vehicle']} {'; '.join(c['generations'])}")
     if d.get("description"):
@@ -186,7 +189,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("query", nargs="?", help="free-text query (titles are often Armenian/Russian, so also try those)")
     s.add_argument("-c", "--category", type=int, help="category id (see `listam categories`); "
                    f"defaults to all, or {PARTS_CATEGORY} (Parts and Accessories) when --make is used")
-    s.add_argument("--make", help="vehicle make the part must fit, name or id (e.g. toyota)")
+    s.add_argument("--make", help="vehicle make, name or id (e.g. toyota): the car itself in vehicle categories "
+                   "such as 23 (Passenger Cars), otherwise the car a part must fit")
     s.add_argument("--model", help="vehicle model, name or id (e.g. camry); needs --make")
     s.add_argument("--generation", help="vehicle generation, name fragment or id (e.g. XV70); needs --model")
     s.add_argument("--brand", help="part manufacturer, name or id (e.g. Bosch, Kashiyama)")
