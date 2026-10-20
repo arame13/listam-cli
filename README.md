@@ -22,16 +22,58 @@ Or run it from a clone with `uv run listam …`.
 
 ## Usage
 
-```bash
-# Used headlights that fit a 2011–2014 Toyota Camry
-listam search "headlight" --make toyota --model camry --generation xv50 --condition used --format text
+The examples below show real output from October 2026; listings change daily.
 
-# Used M5 Pro MacBooks (category 116, processor filter _a138)
-listam search -c 116 --brand apple -f "_a138=Apple M5 Pro" --condition used --format text
+Search in Armenian: Toyota Camry headlights ("ֆառ") from sellers in Yerevan.
 
-# One listing: specs, fitment, description, seller, phones, photos saved locally
-listam item 23827144 --phone --download ~/Downloads/listam
+```console
+$ listam search "ֆառ" --make toyota --model camry --location yerevan --sections regular --limit 3 --format text
+# total exact matches: 251  results on page(s): 3  next_page: 2  url: https://www.list.am/en/category/22?q=%D6%86%D5%A1%D5%BC&cc_bid=76&cc_mid=1560&n=1
+22253770 | regular | 47,000 ֏ | Toyota camry 2015 - 2016 v55 se ֆառ depo | Suitable For Toyota Camry | Erebuni | 1 photos
+20789558 | regular | 40,000 ֏ | Toyota camry ֆառ 2009-2011թ | Suitable For Toyota Camry | Erebuni | 1 photos
+22287995 | regular | 40,000 ֏ | Toyota camry 2010 - 2011 ֆառ se | Suitable For Toyota Camry | Erebuni | 1 photos
 ```
+
+Lada Niva parts in Gyumri, filtered by the vehicle they fit.
+
+```console
+$ listam search --make vaz --model "2121 niva" --location gyumri --sections regular --limit 3 --format text
+# total exact matches: 5  results on page(s): 3  next_page: None  url: https://www.list.am/en/category/22?cc_bid=78&cc_mid=4079&n=51
+22777498 | regular | 4,000 ֏ | Լադա վազ 2121 նիվի սրահի բռնակ նաև 2106-2107 | Suitable For VAZ (Lada) 2121 Niva | Gyumri | 3 photos
+21571036 | regular | 50,000 ֏ | VAZ (Lada) 2121 Niva դեմի մոստ | Suitable For VAZ (Lada) 2121 Niva | Gyumri | 1 photos
+21532552 | regular | 35,000 ֏ | VAZ (Lada) 2121 Niva ռազդատկա | Suitable For VAZ (Lada) 2121 Niva | Gyumri | 1 photos
+```
+
+Apartments in Kentron under $150,000, sold by owners rather than agencies.
+
+```console
+$ listam search -c 60 --location kentron --currency usd --price-max 150000 -f cmtype=owner --sections regular --limit 3 --format text
+# total exact matches: 26  results on page(s): 3  next_page: None  url: https://www.list.am/en/category/60?n=8&crc=1&price2=150000&cmtype=0
+995191445 | regular | $ 150,000 | Studio apartment on Bryusov Street in the center, 35 sq.m., second to last floor | Studio, 35 sq.m., 8/9 floor | Kentron | 10 photos
+24100506 | regular | $ 148,000 | 1 room apartment on Zavaryan Street in the center, 42 sq.m., 4/9 floor | 1 rm., 42 sq.m., 4/9 floor | Kentron | 16 photos
+24035931 | regular | $ 139,000 | 3 room apartment on Khorenatsi Street in the center, 39 sq.m., stone building | 3 rm., 39 sq.m., 5/5 floor | Kentron | 14 photos
+```
+
+Details of one listing, including the exact generation it fits and full-size photo URLs.
+
+```console
+$ listam item 22253770 --format text
+Toyota camry 2015 - 2016 v55 se ֆառ depo
+id 22253770  47,000 ֏  Yerevan › Erebuni
+https://www.list.am/en/item/22253770
+Manufacturer: Other
+Condition: New
+Car Part Side: Left side
+Fits: Toyota Camry XV50 Restyling (2014 - 2018)
+
+Toyota camry 2015 - 2016 v55 se ֆառ depo բոլորովին նոր շատ լավ որակի տեղադրվում է առանց խնդիրների առանց զազոռների նուն օրիգինալի նման
+
+Seller: Auto Parts  https://www.list.am/user/2795549
+Image: https://img.list.am/f/041/87719041.jpg
+```
+
+Add `--phone` to include the seller's numbers (local and `+374…`, plus Viber/WhatsApp links), or `--download DIR`
+to save every photo. `listam phone ID` returns just the contacts.
 
 | Command | Purpose |
 |---|---|
