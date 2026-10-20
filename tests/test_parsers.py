@@ -135,3 +135,9 @@ def test_filters_label_first_tiles_get_own_label_and_options():
 
 def test_resolve_option_passes_free_text_through():
     assert resolve_option([], "anything", "q") == "anything"
+
+
+def test_landing_page_categories_from_shortcuts():
+    cats = parsers.parse_categories(read("category_54_landing.html"))
+    assert {"id": 62, "name": "For sale", "selected": False} in cats
+    assert len(cats) == 5

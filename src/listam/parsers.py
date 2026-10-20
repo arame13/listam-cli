@@ -344,7 +344,12 @@ def parse_categories(html: str) -> list[dict[str, Any]]:
     tree = LexborHTMLParser(html)
     form = tree.css_first('form[name="f"]')
     if form is None:
-        return []
+        # Landing pages (e.g. Real Estate) have no sidebar; children are shortcut links.
+        return [
+            {"id": int(a.attributes["data-category-id"]), "name": _text(a), "selected": False}
+            for a in tree.css("a.reh-shortcut[data-category-id]")
+            if (a.attributes.get("data-category-id") or "").isdigit() and _text(a)
+        ]
     out = []
     for node in form.css("[data-category-id]"):
         cid = node.attributes.get("data-category-id")
